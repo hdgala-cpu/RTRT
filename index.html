@@ -20,7 +20,8 @@
     position: fixed;
     top: 16px;
     right: 16px;
-    width: 280px;
+    width: 340px;
+    max-height: calc(100vh - 32px);
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -75,6 +76,10 @@
     text-shadow: 0 0 10px rgba(120, 240, 170, 0.35);
     font-variant-numeric: tabular-nums;
   }
+  .china-count {
+    color: #ffb37a !important;
+    text-shadow: 0 0 10px rgba(255, 170, 100, 0.35) !important;
+  }
   .sat-sub {
     margin-top: 6px;
     font-size: 10.5px;
@@ -127,6 +132,17 @@
       <option>Loading TLE data…</option>
     </select>
     <div class="sat-status" id="sat-status">Fetching from CelesTrak</div>
+  </div>
+  <div class="panel" id="china-panel">
+    <div class="sat-head">
+      <span class="label">Chinese satellites</span>
+      <span class="sat-count china-count" id="china-count">…</span>
+    </div>
+    <div class="sat-sub">Name · purpose · alt · launch · sub-sat point</div>
+    <select class="sat-select" id="china-list" size="1">
+      <option>Loading SATCAT…</option>
+    </select>
+    <div class="sat-status" id="china-status">Fetching CelesTrak SATCAT</div>
   </div>
 </div>
 
@@ -253,8 +269,13 @@ const delhiObs = toObserverGd(DELHI);
 const countEl = document.getElementById('sat-count');
 const listEl = document.getElementById('sat-list');
 const statusEl = document.getElementById('sat-status');
+const chinaCountEl = document.getElementById('china-count');
+const chinaListEl = document.getElementById('china-list');
+const chinaStatusEl = document.getElementById('china-status');
 
 let sats = [];
+let chineseMeta = new Map();
+let satcatReady = false;
 
 function parseTLE(text) {
   const lines = text.replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
@@ -283,11 +304,161 @@ async function loadTLE() {
     if (sats.length === 0) throw new Error('No TLEs parsed');
     statusEl.textContent = `${sats.length} active satellites loaded`;
     updateSats();
+    if (satcatReady) updateChinese();
   } catch (e) {
     statusEl.textContent = 'TLE fetch failed: ' + e.message;
     countEl.textContent = '—';
     listEl.innerHTML = '<option>Unable to load satellite data</option>';
   }
+}
+
+function purposeOf(name) {
+  const u = name.toUpperCase();
+  if (/\bBEIDOU\b|\bCOMPASS\b/.test(u)) return 'Navigation (BeiDou)';
+  if (/\bFENGYUN\b|\bFY-/.test(u)) return 'Meteorology';
+  if (/\bGAOFEN\b|\bGF-/.test(u)) return 'High-res Earth obs';
+  if (/\bYAOGAN\b/.test(u)) return 'Remote sensing';
+  if (/\bZIYUAN\b|\bZY-/.test(u)) return 'Earth resources';
+  if (/\bHAIYANG\b|\bHY-/.test(u)) return 'Ocean observation';
+  if (/\bHUANJING\b|\bHJ-/.test(u)) return 'Environment / disaster';
+  if (/\bTIANHUI\b|\bTH-/.test(u)) return 'Geodesy / mapping';
+  if (/\bSHIJIAN\b|\bSJ-/.test(u)) return 'Tech demo / experiment';
+  if (/\bTIANLIAN\b|\bTL-/.test(u)) return 'Data relay';
+  if (/\bZHONGXING\b|\bCHINASAT\b|\bZX-/.test(u)) return 'Communications';
+  if (/\bAPSTAR\b/.test(u)) return 'Commercial comms';
+  if (/\bASIASAT\b/.test(u)) return 'Commercial comms';
+  if (/\bTIANGONG\b|\bTG-/.test(u)) return 'Crewed space station';
+  if (/\bSHENZHOU\b|\bSZ-/.test(u)) return 'Crewed spacecraft';
+  if (/\bTIANZHOU\b|\bTZ-/.test(u)) return 'Cargo spacecraft';
+  if (/CHANG.?E/.test(u)) return 'Lunar exploration';
+  if (/\bTIANWEN\b|\bTW-/.test(u)) return 'Interplanetary';
+  if (/\bMOZI\b|\bQUESS\b/.test(u)) return 'Quantum comms';
+  if (/\bHXMT\b/.test(u)) return 'X-ray astronomy';
+  if (/\bDAMPE\b/.test(u)) return 'Dark matter';
+  if (/\bCSES\b/.test(u)) return 'Seismic monitoring';
+  if (/\bXPNAV\b/.test(u)) return 'Pulsar nav test';
+  if (/\bTJS\b|\bTJSW\b/.test(u)) return 'Comms tech experiment';
+  if (/\bJILIN\b/.test(u)) return 'Commercial Earth obs';
+  if (/\bBEIJING\b/.test(u)) return 'Earth observation';
+  if (/\bXJS\b|\bXJY\b/.test(u)) return 'Tech experiment';
+  if (/\bSHIYAN\b|\bSY-/.test(u)) return 'Experimental';
+  if (/\bCAS-|\bXW-/.test(u)) return 'Amateur radio';
+  if (/\bDFH\b/.test(u)) return 'Comms / test';
+  if (/\bKZ-|\bKUAIZHOU\b/.test(u)) return 'Launch test';
+  if (/\bLUDI\b|\bLT-/.test(u)) return 'Earth observation';
+  if (/\bLINGQIAO\b|LING QIAO/.test(u)) return 'Comms test';
+  if (/\bQIANFAN\b/.test(u)) return 'Broadband constellation';
+  if (/\bGUOWANG\b/.test(u)) return 'Broadband constellation';
+  return 'Unspecified';
+}
+
+function parseCSVLine(line) {
+  const out = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+      else if (c === '"') inQ = false;
+      else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { out.push(cur); cur = ''; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+async function loadSATCAT() {
+  chinaStatusEl.textContent = 'Fetching CelesTrak SATCAT…';
+  try {
+    const res = await fetch('https://celestrak.org/pub/satcat.csv');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const lines = text.split('\n');
+    const header = parseCSVLine(lines[0]);
+    const idx = {
+      name:    header.indexOf('OBJECT_NAME'),
+      norad:   header.indexOf('NORAD_CAT_ID'),
+      type:    header.indexOf('OBJECT_TYPE'),
+      owner:   header.indexOf('OWNER'),
+      launch:  header.indexOf('LAUNCH_DATE'),
+      apogee:  header.indexOf('APOGEE'),
+      perigee: header.indexOf('PERIGEE'),
+      ops:     header.indexOf('OPS_STATUS_CODE'),
+    };
+    let count = 0;
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i]) continue;
+      const f = parseCSVLine(lines[i]);
+      if (f[idx.owner] !== 'PRC') continue;
+      if (f[idx.type] !== 'PAYLOAD') continue;
+      const apo = parseFloat(f[idx.apogee]);
+      const per = parseFloat(f[idx.perigee]);
+      const avgAlt = (isFinite(apo) && isFinite(per)) ? Math.round((apo + per) / 2) : null;
+      const name = f[idx.name];
+      chineseMeta.set(String(parseInt(f[idx.norad], 10)), {
+        name,
+        purpose: purposeOf(name),
+        launch: f[idx.launch],
+        avgAlt,
+      });
+      count++;
+    }
+    satcatReady = true;
+    chinaStatusEl.textContent = `${count} PRC payloads in catalog`;
+    if (sats.length > 0) updateChinese();
+  } catch (e) {
+    chinaStatusEl.textContent = 'SATCAT fetch failed: ' + e.message;
+    chinaCountEl.textContent = '—';
+    chinaListEl.innerHTML = '<option>Unable to load SATCAT</option>';
+  }
+}
+
+function fmtLat(d) {
+  return Math.abs(d).toFixed(0) + (d >= 0 ? 'N' : 'S');
+}
+function fmtLon(d) {
+  return Math.abs(d).toFixed(0) + (d >= 0 ? 'E' : 'W');
+}
+function fmtLaunch(s) {
+  if (!s) return '----';
+  const m = String(s).match(/^(\d{4})/);
+  return m ? m[1] : '----';
+}
+
+function updateChinese() {
+  if (!satcatReady || sats.length === 0) return;
+  const now = new Date();
+  const gmst = satellite.gstime(now);
+  const out = [];
+  for (const s of sats) {
+    const meta = chineseMeta.get(String(parseInt(s.rec.satnum, 10)));
+    if (!meta) continue;
+    const pv = satellite.propagate(s.rec, now);
+    if (!pv.position) continue;
+    const geo = satellite.eciToGeodetic(pv.position, gmst);
+    const lat = satellite.degreesLat(geo.latitude);
+    const lon = satellite.degreesLong(geo.longitude);
+    out.push({
+      name: meta.name,
+      purpose: meta.purpose,
+      avgAlt: meta.avgAlt,
+      launch: fmtLaunch(meta.launch),
+      lat, lon,
+      instAlt: Math.round(geo.height),
+    });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  chinaCountEl.textContent = out.length.toLocaleString();
+  const opts = out.map(s => {
+    const alt = s.avgAlt != null ? `${s.avgAlt} km` : `~${s.instAlt} km`;
+    return `<option>${escapeHtml(s.name)} · ${s.purpose} · ${alt} · ${s.launch} · ${fmtLat(s.lat)} ${fmtLon(s.lon)}</option>`;
+  }).join('');
+  chinaListEl.innerHTML = opts || '<option>No tracked Chinese payloads</option>';
+  chinaStatusEl.textContent = `${out.length} active · purpose inferred from family name`;
 }
 
 function updateSats() {
@@ -337,7 +508,11 @@ function escapeHtml(s) {
 }
 
 loadTLE();
-setInterval(updateSats, 5000);
+loadSATCAT();
+setInterval(() => {
+  updateSats();
+  updateChinese();
+}, 5000);
 </script>
 </body>
 </html>
