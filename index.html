@@ -358,10 +358,21 @@ earthTex.colorSpace = THREE.SRGBColorSpace;
 const bumpTex = loader.load('https://threejs.org/examples/textures/planets/earth_normal_2048.jpg');
 const specTex = loader.load('https://threejs.org/examples/textures/planets/earth_specular_2048.jpg');
 
-const earth = new THREE.Mesh(
-  new THREE.SphereGeometry(1, 96, 96),
-  new THREE.MeshPhongMaterial({ map: earthTex, normalMap: bumpTex, specularMap: specTex, shininess: 12 })
-);
+const earthMaterial = new THREE.MeshPhongMaterial({
+  map: earthTex, normalMap: bumpTex, specularMap: specTex, shininess: 12
+});
+earthMaterial.onBeforeCompile = (shader) => {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <specularmap_fragment>',
+    `#include <specularmap_fragment>
+     diffuseColor.rgb = mix(
+       diffuseColor.rgb,
+       diffuseColor.rgb * vec3(1.35, 1.55, 1.95) + vec3(0.03, 0.08, 0.20),
+       specularStrength * 0.85
+     );`
+  );
+};
+const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 96), earthMaterial);
 scene.add(earth);
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.75));
