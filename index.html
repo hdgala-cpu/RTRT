@@ -106,10 +106,160 @@
     color: #7a8fa8;
     font-style: italic;
   }
+
+  #left-panels {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    width: 320px;
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .listbox {
+    margin-top: 8px;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    color: #e6f1ff;
+    border: 1px solid rgba(120, 200, 255, 0.25);
+    border-radius: 6px;
+    padding: 4px;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 12px;
+    outline: none;
+  }
+  .listbox:focus { border-color: rgba(120, 200, 255, 0.6); }
+  .listbox option {
+    padding: 3px 6px;
+    cursor: pointer;
+  }
+  .listbox option:hover { background: rgba(120, 200, 255, 0.18); }
+
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    pointer-events: auto;
+  }
+  .modal.hidden { display: none; }
+  .modal-card {
+    background: rgba(8, 14, 24, 0.92);
+    border: 1px solid rgba(120, 200, 255, 0.3);
+    border-radius: 12px;
+    padding: 22px 26px 20px;
+    max-width: 560px;
+    width: calc(100% - 40px);
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 0 40px rgba(80, 160, 255, 0.15), 0 8px 30px rgba(0,0,0,0.6);
+    color: #e6f1ff;
+    position: relative;
+  }
+  .modal-card h2 {
+    margin: 0 0 14px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #ffd9b3;
+    letter-spacing: 0.04em;
+    padding-right: 30px;
+  }
+  .modal-close {
+    position: absolute;
+    top: 10px; right: 12px;
+    background: transparent;
+    border: none;
+    color: #8aa4c1;
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 8px;
+  }
+  .modal-close:hover { color: #fff; }
+  .kv {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(120, 200, 255, 0.08);
+    font-size: 13px;
+  }
+  .kv .k {
+    color: #6fa8d6;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+    flex: 0 0 130px;
+    padding-top: 2px;
+  }
+  .kv .v {
+    color: #e6f1ff;
+    text-align: right;
+    flex: 1 1 auto;
+    word-break: break-word;
+  }
+  .kv-block { padding: 10px 0 4px; }
+  .kv-block .k {
+    color: #6fa8d6;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  pre.tle {
+    margin: 0;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(120, 200, 255, 0.18);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 11.5px;
+    color: #cfe2ff;
+    overflow-x: auto;
+    white-space: pre;
+  }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+
+<div id="left-panels">
+  <div class="panel" id="catalog-panel">
+    <div class="sat-head">
+      <span class="label">Chinese satellite catalog</span>
+      <span class="sat-count china-count" id="cat-count">…</span>
+    </div>
+    <div class="sat-sub">By stated purpose</div>
+    <select class="sat-select" id="group-select">
+      <option value="">— select category —</option>
+      <option value="Navigation">Navigation (BeiDou)</option>
+      <option value="EarthObservation">Earth Observation</option>
+      <option value="Communications">Communications</option>
+      <option value="Meteorology">Meteorology</option>
+      <option value="Science">Science &amp; Exploration</option>
+    </select>
+    <select class="listbox" id="cat-list" size="18">
+      <option>Select a category above</option>
+    </select>
+    <div class="sat-status" id="cat-status">Awaiting SATCAT…</div>
+  </div>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <button class="modal-close" id="modal-close" aria-label="Close">×</button>
+    <h2 id="modal-title"></h2>
+    <div id="modal-body"></div>
+  </div>
+</div>
 
 <div id="panels">
   <div class="panel" id="clock-panel">
@@ -287,7 +437,7 @@ function parseTLE(text) {
     if (!l1.startsWith('1 ') || !l2.startsWith('2 ')) continue;
     try {
       const rec = satellite.twoline2satrec(l1, l2);
-      if (!rec.error) out.push({ name, rec });
+      if (!rec.error) out.push({ name, rec, tle1: l1, tle2: l2 });
     } catch (e) { /* skip bad TLE */ }
   }
   return out;
@@ -304,12 +454,55 @@ async function loadTLE() {
     if (sats.length === 0) throw new Error('No TLEs parsed');
     statusEl.textContent = `${sats.length} active satellites loaded`;
     updateSats();
-    if (satcatReady) updateChinese();
+    if (satcatReady) {
+      updateChinese();
+      buildChineseAll();
+    }
   } catch (e) {
     statusEl.textContent = 'TLE fetch failed: ' + e.message;
     countEl.textContent = '—';
     listEl.innerHTML = '<option>Unable to load satellite data</option>';
   }
+}
+
+function categoryOf(purpose) {
+  if (/^Navigation/.test(purpose)) return 'Navigation';
+  if (/Earth obs|Remote sensing|Earth resources|Ocean|Environment|Geodesy|Earth observation|mapping/i.test(purpose)) return 'EarthObservation';
+  if (/Communications|Comms|Data relay|Broadband/.test(purpose)) return 'Communications';
+  if (purpose === 'Meteorology') return 'Meteorology';
+  return 'Science';
+}
+
+const KNOWN_DIMS = [
+  [/TIANHE/i,             '~16.6 m × 4.2 m, ~22.5 t — CSS core module'],
+  [/WENTIAN/i,            '~17.9 m × 4.2 m, ~23 t — CSS lab module'],
+  [/MENGTIAN/i,           '~17.9 m × 4.2 m, ~23 t — CSS lab module'],
+  [/TIANGONG/i,           '~16.6 × 39 × 27.4 m, ~100 t — assembled station'],
+  [/SHENZHOU/i,           '9.25 m long × 2.9 m dia, ~7.8 t — crewed spacecraft'],
+  [/TIANZHOU/i,           '10.6 m long × 3.35 m dia, ~13 t — cargo spacecraft'],
+  [/CHANG.?E/i,           'Lander + rover; varies by mission (~3.7 t lander class)'],
+  [/TIANWEN/i,            '~3.4 × 4.2 × 5.0 m orbiter + lander/rover, ~5 t total'],
+  [/MOZI|QUESS/i,         '~1.7 × 1.7 m bus, ~600 kg — quantum experiment'],
+  [/HXMT|INSIGHT/i,       '~2.8 × 2.8 m, ~2.5 t — X-ray telescope'],
+  [/DAMPE|WUKONG/i,       '~1.5 × 1.5 × 1.2 m, ~1.9 t — particle detector'],
+  [/CSES|ZHANGHENG/i,     '~1.4 × 1.4 × 1.4 m, ~730 kg — seismic monitor'],
+  [/BEIDOU.*MEO|BEIDOU-3/i,'Bus ~2.25 × 1.0 × 1.22 m, solar span ~25 m, ~1060 kg'],
+  [/BEIDOU/i,             'Comm bus, ~800–4500 kg depending on slot (GEO/IGSO/MEO)'],
+  [/FENGYUN.*4|FY-4/i,    '~2.4 × 2.4 × 4.6 m, ~5.4 t — geostationary weather sat'],
+  [/FENGYUN.*3|FY-3/i,    '~4.4 × 2.0 × 2.0 m, ~2.45 t — polar weather sat'],
+  [/GAOFEN.*1|GF-1/i,     '~3.0 × 1.7 × 1.5 m, ~1080 kg'],
+  [/GAOFEN.*2|GF-2/i,     '~5.2 × 2.2 × 2.0 m, ~2.1 t'],
+  [/ZHONGXING|CHINASAT/i, 'DFH-3/4/5 bus, ~2.0–7.6 t depending on bus'],
+];
+
+function dimensionsOf(name, rcs) {
+  for (const [re, dim] of KNOWN_DIMS) if (re.test(name)) return dim;
+  const r = (rcs || '').trim();
+  if (!r) return 'Not publicly available';
+  if (/^[A-Z]+$/.test(r)) return `Bus class: ${r.toLowerCase()} (NORAD RCS class)`;
+  const n = parseFloat(r);
+  if (isFinite(n)) return `RCS ${n.toFixed(2)} m² (radar cross section, size proxy)`;
+  return 'Not publicly available';
 }
 
 function purposeOf(name) {
@@ -381,12 +574,14 @@ async function loadSATCAT() {
     const header = parseCSVLine(lines[0]);
     const idx = {
       name:    header.indexOf('OBJECT_NAME'),
+      intl:    header.indexOf('OBJECT_ID'),
       norad:   header.indexOf('NORAD_CAT_ID'),
       type:    header.indexOf('OBJECT_TYPE'),
       owner:   header.indexOf('OWNER'),
       launch:  header.indexOf('LAUNCH_DATE'),
       apogee:  header.indexOf('APOGEE'),
       perigee: header.indexOf('PERIGEE'),
+      rcs:     header.indexOf('RCS'),
       ops:     header.indexOf('OPS_STATUS_CODE'),
     };
     let count = 0;
@@ -399,17 +594,29 @@ async function loadSATCAT() {
       const per = parseFloat(f[idx.perigee]);
       const avgAlt = (isFinite(apo) && isFinite(per)) ? Math.round((apo + per) / 2) : null;
       const name = f[idx.name];
+      const purpose = purposeOf(name);
       chineseMeta.set(String(parseInt(f[idx.norad], 10)), {
         name,
-        purpose: purposeOf(name),
+        intlDes: f[idx.intl],
+        purpose,
+        category: categoryOf(purpose),
         launch: f[idx.launch],
+        apogee: isFinite(apo) ? apo : null,
+        perigee: isFinite(per) ? per : null,
         avgAlt,
+        rcs: f[idx.rcs],
+        ops: f[idx.ops],
       });
       count++;
     }
     satcatReady = true;
     chinaStatusEl.textContent = `${count} PRC payloads in catalog`;
-    if (sats.length > 0) updateChinese();
+    if (sats.length > 0) {
+      updateChinese();
+      buildChineseAll();
+    } else {
+      buildChineseAll();
+    }
   } catch (e) {
     chinaStatusEl.textContent = 'SATCAT fetch failed: ' + e.message;
     chinaCountEl.textContent = '—';
@@ -513,6 +720,113 @@ setInterval(() => {
   updateSats();
   updateChinese();
 }, 5000);
+
+/* ---------- Catalog (left panel + modal) ---------- */
+const catCountEl   = document.getElementById('cat-count');
+const groupSelect  = document.getElementById('group-select');
+const catListEl    = document.getElementById('cat-list');
+const catStatusEl  = document.getElementById('cat-status');
+const modalEl      = document.getElementById('modal');
+const modalTitle   = document.getElementById('modal-title');
+const modalBody    = document.getElementById('modal-body');
+const modalCloseEl = document.getElementById('modal-close');
+
+let chineseAll = [];
+
+function buildChineseAll() {
+  if (!satcatReady) return;
+  const byNorad = new Map();
+  for (const s of sats) byNorad.set(String(parseInt(s.rec.satnum, 10)), s);
+  chineseAll = [];
+  for (const [noradId, meta] of chineseMeta) {
+    const tle = byNorad.get(noradId);
+    chineseAll.push({
+      norad: noradId,
+      intlDes: meta.intlDes,
+      name: meta.name,
+      purpose: meta.purpose,
+      category: meta.category,
+      launch: meta.launch,
+      apogee: meta.apogee,
+      perigee: meta.perigee,
+      avgAlt: meta.avgAlt,
+      rcs: meta.rcs,
+      ops: meta.ops,
+      tle1: tle ? tle.tle1 : null,
+      tle2: tle ? tle.tle2 : null,
+      hasTle: !!tle,
+    });
+  }
+  catCountEl.textContent = chineseAll.length.toLocaleString();
+  catStatusEl.textContent = `${chineseAll.length} payloads · pick a category`;
+  if (groupSelect.value) populateCatList(groupSelect.value);
+}
+
+function populateCatList(category) {
+  if (!category) {
+    catListEl.innerHTML = '<option>Select a category above</option>';
+    catStatusEl.textContent = `${chineseAll.length} payloads · pick a category`;
+    return;
+  }
+  const inGroup = chineseAll.filter(s => s.category === category);
+  inGroup.sort((a, b) => a.name.localeCompare(b.name));
+  if (inGroup.length === 0) {
+    catListEl.innerHTML = '<option>No payloads in this group</option>';
+    catStatusEl.textContent = `0 in ${category}`;
+    return;
+  }
+  catListEl.innerHTML = inGroup.map(s =>
+    `<option value="${s.norad}">${escapeHtml(s.name)}</option>`
+  ).join('');
+  catStatusEl.textContent = `${inGroup.length} in ${category} · click any to inspect`;
+}
+
+groupSelect.addEventListener('change', e => populateCatList(e.target.value));
+
+function openModal(norad) {
+  const s = chineseAll.find(x => x.norad === norad);
+  if (!s) return;
+  modalTitle.textContent = s.name;
+  const apoPer = (s.apogee != null && s.perigee != null)
+    ? `${Math.round(s.apogee).toLocaleString()} × ${Math.round(s.perigee).toLocaleString()} km`
+    : 'Unknown';
+  const ops = ({
+    '+': 'Operational', '-': 'Non-operational', 'P': 'Partially operational',
+    'B': 'Backup/standby', 'S': 'Spare', 'X': 'Extended mission', 'D': 'Decayed',
+    'R': 'Reentered', 'U': 'Unknown', '': 'Unknown'
+  })[s.ops] || s.ops;
+  const tleBlock = s.hasTle
+    ? `<pre class="tle">${escapeHtml(s.tle1)}\n${escapeHtml(s.tle2)}</pre>`
+    : `<pre class="tle">No active TLE — satellite may have decayed or be inactive.</pre>`;
+  modalBody.innerHTML = `
+    <div class="kv"><span class="k">Stated purpose</span><span class="v">${escapeHtml(s.purpose)}</span></div>
+    <div class="kv"><span class="k">Category</span><span class="v">${escapeHtml(s.category)}</span></div>
+    <div class="kv"><span class="k">NORAD ID</span><span class="v">${s.norad}</span></div>
+    <div class="kv"><span class="k">Int'l Designator</span><span class="v">${escapeHtml(s.intlDes || '—')}</span></div>
+    <div class="kv"><span class="k">Launch date</span><span class="v">${escapeHtml(s.launch || 'Unknown')}</span></div>
+    <div class="kv"><span class="k">Status</span><span class="v">${escapeHtml(ops)}</span></div>
+    <div class="kv"><span class="k">Apogee × Perigee</span><span class="v">${apoPer}</span></div>
+    <div class="kv"><span class="k">Dimensions</span><span class="v">${escapeHtml(dimensionsOf(s.name, s.rcs))}</span></div>
+    <div class="kv-block">
+      <div class="k">TLE (latest from CelesTrak)</div>
+      ${tleBlock}
+    </div>
+  `;
+  modalEl.classList.remove('hidden');
+}
+
+function closeModal() { modalEl.classList.add('hidden'); }
+
+catListEl.addEventListener('click', e => {
+  const opt = e.target.closest('option');
+  if (opt && opt.value) openModal(opt.value);
+});
+catListEl.addEventListener('change', e => {
+  if (e.target.value) openModal(e.target.value);
+});
+modalCloseEl.addEventListener('click', closeModal);
+modalEl.addEventListener('click', e => { if (e.target === modalEl) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 </script>
 </body>
 </html>
