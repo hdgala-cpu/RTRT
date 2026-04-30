@@ -121,7 +121,11 @@
     gap: 10px;
     z-index: 10;
     pointer-events: none;
+    overflow-y: auto;
+    padding-right: 4px;
   }
+  #left-panels::-webkit-scrollbar { width: 8px; }
+  #left-panels::-webkit-scrollbar-thumb { background: rgba(255, 190, 130, 0.3); border-radius: 4px; }
   #catalog-panel {
     border-color: rgba(255, 190, 130, 0.55);
     box-shadow:
@@ -270,6 +274,17 @@
       <option>Select a category above</option>
     </select>
     <div class="sat-status" id="cat-status">Awaiting SATCAT…</div>
+  </div>
+  <div class="panel" id="cn-gp-panel">
+    <div class="sat-head">
+      <span class="label">Chinese sats · live GP</span>
+    </div>
+    <div class="sat-sub">CelesTrak GROUP=chinese</div>
+    <select class="sat-select" id="cn-gp-select">
+      <option value="">Loading…</option>
+    </select>
+    <div id="cn-gp-details" style="margin-top:10px;"></div>
+    <div class="sat-status" id="cn-gp-status">Fetching GP feed…</div>
   </div>
 </div>
 
@@ -864,6 +879,45 @@ catListEl.addEventListener('change', e => {
 modalCloseEl.addEventListener('click', closeModal);
 modalEl.addEventListener('click', e => { if (e.target === modalEl) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+/* ---------- Live GP feed (GROUP=chinese, JSON) ---------- */
+const cnGpSelect  = document.getElementById('cn-gp-select');
+const cnGpDetails = document.getElementById('cn-gp-details');
+const cnGpStatus  = document.getElementById('cn-gp-status');
+
+async function loadChineseGP() {
+  try {
+    const res = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=chinese&FORMAT=JSON');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) throw new Error('Empty response');
+    data.sort((a, b) => a.OBJECT_NAME.localeCompare(b.OBJECT_NAME));
+    cnGpSelect.innerHTML = '<option value="">— select satellite —</option>' +
+      data.map((s, i) => `<option value="${i}">${escapeHtml(s.OBJECT_NAME)}</option>`).join('');
+    cnGpStatus.textContent = `${data.length} Chinese satellites · live GP feed`;
+    cnGpSelect.addEventListener('change', () => {
+      const idx = parseInt(cnGpSelect.value, 10);
+      if (isNaN(idx)) { cnGpDetails.innerHTML = ''; return; }
+      const s = data[idx];
+      const altKm = Math.round(Math.pow(331.25 / s.MEAN_MOTION, 2/3) * 6371 - 6371);
+      cnGpDetails.innerHTML = `
+        <div class="kv"><span class="k">NORAD ID</span><span class="v">${s.NORAD_CAT_ID}</span></div>
+        <div class="kv"><span class="k">Epoch</span><span class="v">${escapeHtml(String(s.EPOCH))}</span></div>
+        <div class="kv"><span class="k">Inclination</span><span class="v">${(+s.INCLINATION).toFixed(4)}°</span></div>
+        <div class="kv"><span class="k">Altitude</span><span class="v">${altKm.toLocaleString()} km</span></div>
+        <div class="kv-block">
+          <div class="k">TLE</div>
+          <pre class="tle">${escapeHtml(s.TLE_LINE1 || '')}\n${escapeHtml(s.TLE_LINE2 || '')}</pre>
+        </div>
+      `;
+    });
+  } catch (e) {
+    cnGpSelect.innerHTML = '<option>Data temporarily unavailable</option>';
+    cnGpStatus.textContent = 'Data temporarily unavailable';
+    cnGpDetails.innerHTML = '';
+  }
+}
+loadChineseGP();
 </script>
 </body>
 </html>
