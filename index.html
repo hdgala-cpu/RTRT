@@ -260,8 +260,7 @@
     </div>
     <div class="sat-sub">By stated purpose</div>
     <select class="sat-select" id="group-select">
-      <option value="">— select category —</option>
-      <option value="Navigation">Navigation (BeiDou)</option>
+      <option value="Navigation" selected>Navigation (BeiDou)</option>
       <option value="EarthObservation">Earth Observation</option>
       <option value="Communications">Communications</option>
       <option value="Meteorology">Meteorology</option>
@@ -336,6 +335,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.35;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
@@ -345,7 +346,8 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.rotateSpeed = 0.5;
-controls.zoomSpeed = 0.8;
+controls.zoomSpeed = 2.5;
+controls.zoomToCursor = true;
 controls.minDistance = 1.2;
 controls.maxDistance = 8;
 controls.enablePan = false;
@@ -362,10 +364,13 @@ const earth = new THREE.Mesh(
 );
 scene.add(earth);
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.35));
-const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5);
 sun.position.set(5, 3, 5);
 scene.add(sun);
+const fill = new THREE.DirectionalLight(0x9bbfe0, 0.35);
+fill.position.set(-4, -2, -3);
+scene.add(fill);
 
 (() => {
   const g = new THREE.BufferGeometry();
@@ -780,7 +785,7 @@ function buildChineseAll() {
   }
   catCountEl.textContent = chineseAll.length.toLocaleString();
   catStatusEl.textContent = `${chineseAll.length} payloads · pick a category`;
-  if (groupSelect.value) populateCatList(groupSelect.value);
+  populateCatList(groupSelect.value || 'Navigation');
 }
 
 function populateCatList(category) {
